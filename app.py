@@ -9,7 +9,6 @@ import io
 import os
 import pandas as pd
 from google import genai
-from streamlit_folium import st_folium
 
 # ============================================
 # 페이지 설정
@@ -455,7 +454,7 @@ with st.sidebar:
 
 
 # ============================================
-# 채팅 UI
+# 채팅 UI (재실행 방지 구조)
 # ============================================
 
 # 채팅 히스토리 초기화
@@ -464,21 +463,22 @@ if "messages" not in st.session_state:
         {"role": "assistant", "content": "안녕하세요! 세종시 복지기관 안내 서비스입니다.\n\n**사용 예시:**\n- \"세종시 한솔동에 사는데 아동돌봄 기관 알려줘\"\n- \"도담동인데 어르신 주간보호센터 찾아줘\"\n- \"세종시 보건소 어디 있어?\"\n\n주소와 필요한 서비스를 함께 입력해주세요."}
     ]
 
-# 채팅 히스토리 출력
+# 채팅 히스토리 출력 (저장된 결과만 표시, API 재호출 없음)
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
-        if "map" in msg and msg["map"]:
-            st_folium(msg["map"], width=700, height=400)
+        if "map_html" in msg and msg["map_html"]:
+            import streamlit.components.v1 as components
+            components.html(msg["map_html"], height=420)
 
 # 사용자 입력
 if user_input := st.chat_input("세종시 주소와 필요한 서비스를 입력하세요..."):
-    # 사용자 메시지 표시
+    # 사용자 메시지 저장 + 표시
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # AI 처리
+    # AI 처리 (1회만 실행, 결과를 session_state에 저장)
     with st.chat_message("assistant"):
         with st.spinner("🔍 검색 중..."):
             # 1) 주소 추출
@@ -489,7 +489,7 @@ if user_input := st.chat_input("세종시 주소와 필요한 서비스를 입�
                 answer = f"⚠️ 본 서비스는 **세종특별자치시** 지역만 지원합니다.\n\n입력하신 주소 '{address_info.get('address', '')}'는 서비스 지역 밖입니다."
                 st.markdown(answer)
                 st.session_state.messages.append({"role": "assistant", "content": answer})
-                st.stop()
+                st.rerun()
 
             # 2) 지오코딩
             address_str = address_info.get('address', '')
@@ -507,13 +507,13 @@ if user_input := st.chat_input("세종시 주소와 필요한 서비스를 입�
                     answer = "⚠️ 주소를 찾을 수 없습니다.\n\n세종시 내 구체적 주소를 입력해주세요.\n\n예) \"세종시 한솔동 123\", \"세종시 도담동\""
                     st.markdown(answer)
                     st.session_state.messages.append({"role": "assistant", "content": answer})
-                    st.stop()
+                    st.rerun()
 
             if geo_status == 'out_of_area' or (lat and not is_within_sejong(lat, lng)):
                 answer = "⚠️ 입력하신 주소가 **세종시 범위 밖**입니다.\n\n본 서비스는 세종특별자치시만 지원합니다."
                 st.markdown(answer)
                 st.session_state.messages.append({"role": "assistant", "content": answer})
-                st.stop()
+                st.rerun()
 
             # 3) 기관유형 매칭
             filtered, match_status, match_message = match_facility_type(user_input, facilities)
@@ -525,12 +525,17 @@ if user_input := st.chat_input("세종시 주소와 필요한 서비스를 입�
             answer = generate_answer(user_input, results, address_info, geo_status, match_status, match_message)
             st.markdown(answer)
 
-            # 6) 지도 표시
-            result_map = None
+            # 6) 지도 → HTML 문자열로 변환하여 저장 (재실행 시 API 재호출 방지)
+            map_html = None
             if results:
                 result_map = create_map(lat, lng, results, G)
-                st_folium(result_map, width=700, height=400)
+                map_html = result_map._repr_html_()
+                import streamlit.components.v1 as components
+                components.html(map_html, height=420)
 
+            # 결과를 session_state에 저장 (지도는 HTML 문자열로)
             st.session_state.messages.append({
-                "role": "assistant", "content": answer, "map": result_map
+                "role": "assistant",
+                "content": answer,
+                "map_html": map_html
             })
