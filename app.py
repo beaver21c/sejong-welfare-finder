@@ -80,36 +80,104 @@ def load_network():
 
 @st.cache_data(show_spinner="📋 기관 데이터 로딩 중...")
 def load_facilities():
-    """CSV에서 기관 데이터 로드"""
+    """CSV에서 기관 데이터 로드 (방어적 처리)"""
     filepath = os.path.join(os.path.dirname(__file__), "data", "facilities.csv")
     facilities = []
 
-    for encoding in ['utf-8-sig', 'utf-8', 'cp949', 'euc-kr']:
+    # 1) 파일 존재 확인
+    if not os.path.exists(filepath):
+        st.error(f"⚠️ 파일이 존재하지 않습니다: {filepath}")
+        return []
+
+    # 2) 인코딩 자동 감지하여 읽기
+    df = None
+    for encoding in ['utf-8-sig', 'utf-8', 'cp949', 'euc-kr', 'latin1']:
         try:
-            df = pd.read_csv(filepath, encoding=encoding)
+            df = pd.read_csv(filepath, encoding=encoding, dtype=str)  # 모든 컬럼을 문자열로 읽기
             break
-        except:
+        except Exception as e:
             continue
 
-    df.columns = [c.strip().replace('\ufeff', '') for c in df.columns]
+    if df is None:
+        st.error("⚠️ facilities.csv를 읽을 수 없습니다.")
+        return []
 
-    for _, row in df.iterrows():
+    # 3) 컬럼명 정리 (공백, BOM, 특수문자 제거)
+    df.columns = [c.strip().replace('\ufeff', '').replace('\xa0', '').replace('\t', '') for c in df.columns]
+
+    # 디버그: 실제 컬럼명 표시 (문제 파악용, 정상 작동 후 삭제 가능)
+    st.sidebar.text(f"CSV 컬럼: {list(df.columns)}")
+    st.sidebar.text(f"CSV 행 수: {len(df)}")
+
+    # 4) 컬럼명 유연 매핑 (다양한 표기 대응)
+    col_map = {}
+    for col in df.columns:
+        col_lower = col.lower().strip()
+        if col_lower in ['시설유형', '유형', '대분류']:
+            col_map['시설유형'] = col
+        elif col_lower in ['시설종류', '종류', '중분류', '소분류']:
+            col_map['시설종류'] = col
+        elif col_lower in ['시설명', '기관명', '기관', '시설']:
+            col_map['시설명'] = col
+        elif col_lower in ['주소', '기관주소', '소재지', '도로명주소']:
+            col_map['주소'] = col
+        elif col_lower in ['행정동', '동', '읍면동']:
+            col_map['행정동'] = col
+        elif col_lower in ['시군구', '시도', '지역']:
+            col_map['시군구'] = col
+        elif col_lower in ['x축', 'x좌표', 'x', 'lng', 'lon', 'longitude', '경도']:
+            col_map['x축'] = col
+        elif col_lower in ['y축', 'y좌표', 'y', 'lat', 'latitude', '위도']:
+            col_map['y축'] = col
+
+    st.sidebar.text(f"컬럼 매핑: {col_map}")
+
+    # 5) 행별 파싱 (오류 건너뛰기)
+    error_count = 0
+    for idx, row in df.iterrows():
         try:
+            # 좌표값 정리: 쉼표 제거, 공백 제거
+            x_raw = str(row.get(col_map.get('x축', 'x축'), '0')).strip().replace(',', '').replace(' ', '')
+            y_raw = str(row.get(col_map.get('y축', 'y축'), '0')).strip().replace(',', '').replace(' ', '')
+
+            # 빈 값 처리
+            if not x_raw or x_raw == 'nan' or x_raw == 'None':
+                x_raw = '0'
+            if not y_raw or y_raw == 'nan' or y_raw == 'None':
+                y_raw = '0'
+
+            lng = float(x_raw)
+            lat = float(y_raw)
+
             facility = {
-                'category_l': str(row.get('시설유형', '')).strip(),
-                'category_m': str(row.get('시설종류', '')).strip(),
-                'category_s': str(row.get('시설종류', '')).strip(),
-                'name': str(row.get('시설명', '')).strip(),
-                'address': str(row.get('주소', '')).strip(),
-                'dong': str(row.get('행정동', '')).strip(),
-                'sigungu': str(row.get('시군구', '')).strip(),
-                'lng': float(row.get('x축', 0)),
-                'lat': float(row.get('y축', 0)),
+                'category_l': str(row.get(col_map.get('시설유형', '시설유형'), '')).strip(),
+                'category_m': str(row.get(col_map.get('시설종류', '시설종류'), '')).strip(),
+                'category_s': str(row.get(col_map.get('시설종류', '시설종류'), '')).strip(),
+                'name': str(row.get(col_map.get('시설명', '시설명'), '')).strip(),
+                'address': str(row.get(col_map.get('주소', '주소'), '')).strip(),
+                'dong': str(row.get(col_map.get('행정동', '행정동'), '')).strip(),
+                'sigungu': str(row.get(col_map.get('시군구', '시군구'), '')).strip(),
+                'lng': lng,
+                'lat': lat,
             }
-            if 36.3 < facility['lat'] < 36.8 and 126.7 < facility['lng'] < 127.3:
+
+            # nan 문자열 정리
+            for key in ['category_l', 'category_m', 'category_s', 'name', 'address', 'dong', 'sigungu']:
+                if facility[key] == 'nan' or facility[key] == 'None':
+                    facility[key] = ''
+
+            # 좌표 유효성 검사
+            if 36.3 < lat < 36.8 and 126.7 < lng < 127.3:
                 facilities.append(facility)
-        except:
+            elif lat != 0 and lng != 0:
+                error_count += 1
+        except Exception as e:
+            error_count += 1
             continue
+
+    if error_count > 0:
+        st.sidebar.warning(f"⚠️ {error_count}건 파싱 오류/범위 밖 제외")
+
     return facilities
 
 @st.cache_data(show_spinner="📍 기관-도로 매핑 중...")
