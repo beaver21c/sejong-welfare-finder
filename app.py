@@ -26,7 +26,10 @@ st.caption("주소와 필요한 서비스를 입력하면, 가장 가까운 기�
 # ============================================
 # 비밀번호 인증
 # ============================================
-APP_PASSWORD = st.secrets.get("APP_PASSWORD", "")
+try:
+    APP_PASSWORD = st.secrets["APP_PASSWORD"]
+except:
+    APP_PASSWORD = "7216"
 
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -35,7 +38,7 @@ if not st.session_state.authenticated:
     st.info("🔒 본 서비스는 시범 운영 중입니다. 비밀번호를 입력해주세요.")
     pw_input = st.text_input("비밀번호", type="password", key="pw_input")
     if st.button("로그인"):
-        if pw_input == APP_PASSWORD:
+        if str(pw_input).strip() == str(APP_PASSWORD).strip():
             st.session_state.authenticated = True
             st.rerun()
         else:
