@@ -81,7 +81,7 @@ def load_network():
 @st.cache_data(show_spinner="📋 기관 데이터 로딩 중...")
 def load_facilities():
     """CSV에서 기관 데이터 로드 (방어적 처리)"""
-    filepath = os.path.join(os.path.dirname(__file__), "data", "facilities.csv")
+    filepath = os.path.join(os.path.dirname(__file__), "facilities.csv")
     facilities = []
 
     # 1) 파일 존재 확인
