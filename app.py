@@ -454,43 +454,31 @@ with st.sidebar:
 
 
 # ============================================
-# 채팅 UI (재실행 방지 구조)
+# UI (폼 기반 - 깜빡임 방지)
 # ============================================
+import streamlit.components.v1 as components
 
-# 채팅 히스토리 초기화
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "assistant", "content": "안녕하세요! 세종시 복지기관 안내 서비스입니다.\n\n**사용 예시:**\n- \"세종시 한솔동에 사는데 아동돌봄 기관 알려줘\"\n- \"도담동인데 어르신 주간보호센터 찾아줘\"\n- \"세종시 보건소 어디 있어?\"\n\n주소와 필요한 서비스를 함께 입력해주세요."}
-    ]
+st.divider()
 
-# 채팅 히스토리 출력 (저장된 결과만 표시, API 재호출 없음)
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-        if "map_html" in msg and msg["map_html"]:
-            import streamlit.components.v1 as components
-            components.html(msg["map_html"], height=420)
+# 입력 폼 (폼 내부에서는 재실행 발생 안 함)
+with st.form("query_form", clear_on_submit=False):
+    user_input = st.text_input(
+        "💬 질문을 입력하세요",
+        placeholder='예) 세종시 한솔동에 사는데 아동돌봄 기관 알려줘',
+    )
+    submitted = st.form_submit_button("🔍 검색", use_container_width=True)
 
-# 사용자 입력
-if user_input := st.chat_input("세종시 주소와 필요한 서비스를 입력하세요..."):
-    # 사용자 메시지 저장 + 표시
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    with st.chat_message("user"):
-        st.markdown(user_input)
+# 결과 표시 영역 (session_state 기반)
+if submitted and user_input:
+    with st.spinner("🔍 검색 중... (주소 확인 → 기관 탐색 → AI 안내문 생성)"):
+        # 1) 주소 추출
+        address_info = extract_address_with_gemini(user_input)
 
-    # AI 처리 (1회만 실행, 결과를 session_state에 저장)
-    with st.chat_message("assistant"):
-        with st.spinner("🔍 검색 중..."):
-            # 1) 주소 추출
-            address_info = extract_address_with_gemini(user_input)
-
-            # 세종시 밖 체크
-            if address_info.get('is_sejong') == False:
-                answer = f"⚠️ 본 서비스는 **세종특별자치시** 지역만 지원합니다.\n\n입력하신 주소 '{address_info.get('address', '')}'는 서비스 지역 밖입니다."
-                st.markdown(answer)
-                st.session_state.messages.append({"role": "assistant", "content": answer})
-                st.rerun()
-
+        # 세종시 밖 체크
+        if address_info.get('is_sejong') == False:
+            st.session_state.last_answer = f"⚠️ 본 서비스는 **세종특별자치시** 지역만 지원합니다.\n\n입력하신 주소 '{address_info.get('address', '')}'는 서비스 지역 밖입니다."
+            st.session_state.last_map_html = None
+        else:
             # 2) 지오코딩
             address_str = address_info.get('address', '')
             if not address_str and address_info.get('dong'):
@@ -504,38 +492,39 @@ if user_input := st.chat_input("세종시 주소와 필요한 서비스를 입�
                     lat, lng = SEJONG_DONG_CENTERS[dong]
                     geo_status = 'fallback_dong'
                 else:
-                    answer = "⚠️ 주소를 찾을 수 없습니다.\n\n세종시 내 구체적 주소를 입력해주세요.\n\n예) \"세종시 한솔동 123\", \"세종시 도담동\""
-                    st.markdown(answer)
-                    st.session_state.messages.append({"role": "assistant", "content": answer})
-                    st.rerun()
+                    st.session_state.last_answer = "⚠️ 주소를 찾을 수 없습니다.\n\n세종시 내 구체적 주소를 입력해주세요.\n\n예) \"세종시 한솔동 123\", \"세종시 도담동\""
+                    st.session_state.last_map_html = None
+                    lat = None
 
-            if geo_status == 'out_of_area' or (lat and not is_within_sejong(lat, lng)):
-                answer = "⚠️ 입력하신 주소가 **세종시 범위 밖**입니다.\n\n본 서비스는 세종특별자치시만 지원합니다."
-                st.markdown(answer)
-                st.session_state.messages.append({"role": "assistant", "content": answer})
-                st.rerun()
+            if lat is not None and (geo_status == 'out_of_area' or not is_within_sejong(lat, lng)):
+                st.session_state.last_answer = "⚠️ 입력하신 주소가 **세종시 범위 밖**입니다.\n\n본 서비스는 세종특별자치시만 지원합니다."
+                st.session_state.last_map_html = None
+                lat = None
 
-            # 3) 기관유형 매칭
-            filtered, match_status, match_message = match_facility_type(user_input, facilities)
+            if lat is not None:
+                # 3) 기관유형 매칭
+                filtered, match_status, match_message = match_facility_type(user_input, facilities)
 
-            # 4) 최단경로 계산
-            results = find_nearest_facilities(G, lat, lng, filtered, top_n=5)
+                # 4) 최단경로 계산
+                results = find_nearest_facilities(G, lat, lng, filtered, top_n=5)
 
-            # 5) AI 안내문 생성
-            answer = generate_answer(user_input, results, address_info, geo_status, match_status, match_message)
-            st.markdown(answer)
+                # 5) AI 안내문 생성
+                answer = generate_answer(user_input, results, address_info, geo_status, match_status, match_message)
+                st.session_state.last_answer = answer
 
-            # 6) 지도 → HTML 문자열로 변환하여 저장 (재실행 시 API 재호출 방지)
-            map_html = None
-            if results:
-                result_map = create_map(lat, lng, results, G)
-                map_html = result_map._repr_html_()
-                import streamlit.components.v1 as components
-                components.html(map_html, height=420)
+                # 6) 지도 HTML 저장
+                if results:
+                    result_map = create_map(lat, lng, results, G)
+                    st.session_state.last_map_html = result_map._repr_html_()
+                else:
+                    st.session_state.last_map_html = None
 
-            # 결과를 session_state에 저장 (지도는 HTML 문자열로)
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": answer,
-                "map_html": map_html
-            })
+# 저장된 결과 표시 (재실행 시에도 안정적)
+if "last_answer" in st.session_state and st.session_state.last_answer:
+    st.divider()
+    st.subheader("🤖 안내 결과")
+    st.markdown(st.session_state.last_answer)
+
+    if "last_map_html" in st.session_state and st.session_state.last_map_html:
+        st.subheader("🗺️ 지도")
+        components.html(st.session_state.last_map_html, height=500)
