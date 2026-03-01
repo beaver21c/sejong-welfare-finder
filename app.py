@@ -218,33 +218,91 @@ def is_within_sejong(lat, lng):
 # 핵심 함수
 # ============================================
 
-def geocode_vworld(address):
-    url = "https://api.vworld.kr/req/address"
-    for addr_type in ['ROAD', 'PARCEL']:
-        params = {
-            "service": "address", "request": "getCoord", "version": "2.0",
-            "crs": "epsg:4326", "address": address, "refine": "true",
-            "simple": "false", "format": "json", "type": addr_type,
-            "key": VWORLD_API_KEY
-        }
-        try:
-            res = requests.get(url, params=params, timeout=10)
-            data = res.json()
-            if data['response']['status'] == 'OK':
-                point = data['response']['result']['point']
-                lat, lng = float(point['y']), float(point['x'])
-                if is_within_sejong(lat, lng):
-                    return lat, lng, 'exact', '정확한 주소 매칭'
-                else:
-                    return lat, lng, 'out_of_area', '세종시 범위 밖'
-        except:
-            continue
+def geocode_nominatim(address):
+    """Nominatim (OpenStreetMap) 무료 지오코딩"""
+    url = 'https://nominatim.openstreetmap.org/search'
+    params = {
+        'q': address,
+        'format': 'json',
+        'countrycodes': 'kr',
+        'limit': 1
+    }
+    headers = {'User-Agent': 'SejongWelfareFinder/1.0'}
+    try:
+        res = requests.get(url, params=params, headers=headers, timeout=10)
+        data = res.json()
+        if data:
+            lat, lng = float(data[0]['lat']), float(data[0]['lon'])
+            return lat, lng
+    except:
+        pass
+    return None, None
 
+
+def geocode_google(address):
+    """Google Geocoding API (fallback용)"""
+    url = "https://maps.googleapis.com/maps/api/geocode/json"
+    params = {
+        "address": address,
+        "key": GEMINI_API_KEY,
+        "language": "ko",
+        "region": "kr"
+    }
+    try:
+        res = requests.get(url, params=params, timeout=10)
+        data = res.json()
+        if data['status'] == 'OK' and data['results']:
+            loc = data['results'][0]['geometry']['location']
+            return loc['lat'], loc['lng']
+    except:
+        pass
+    return None, None
+
+
+def geocode(address):
+    """
+    통합 지오코딩
+    1차: Nominatim (무료, 해외 서버 OK)
+    2차: Google (유료, 정확도 높음)
+    3차: 읍면동 중심점
+    4차: 세종시 중심점
+    """
+    # 주소 전처리
+    address_clean = address.strip()
+    if "세종시" in address_clean and "세종특별자치시" not in address_clean:
+        address_clean = address_clean.replace("세종시", "세종특별자치시")
+
+    st.sidebar.divider()
+    st.sidebar.text(f"[지오코딩] 입력: {address}")
+    st.sidebar.text(f"[지오코딩] 변환: {address_clean}")
+
+    # 1차: Nominatim
+    st.sidebar.text("[1차] Nominatim 시도...")
+    lat, lng = geocode_nominatim(address_clean)
+    if lat and is_within_sejong(lat, lng):
+        st.sidebar.text(f"  ✅ 성공: ({lat:.4f}, {lng:.4f})")
+        return lat, lng, 'exact', 'Nominatim 지오코딩 성공'
+    elif lat:
+        st.sidebar.text(f"  ⚠️ 범위 밖: ({lat:.4f}, {lng:.4f})")
+
+    # 2차: Google (Nominatim 실패 시에만)
+    st.sidebar.text("[2차] Google API 시도...")
+    lat, lng = geocode_google(address_clean)
+    if lat and is_within_sejong(lat, lng):
+        st.sidebar.text(f"  ✅ 성공: ({lat:.4f}, {lng:.4f})")
+        return lat, lng, 'exact', 'Google 지오코딩 성공'
+    elif lat:
+        st.sidebar.text(f"  ⚠️ 범위 밖: ({lat:.4f}, {lng:.4f})")
+
+    # 3차: 읍면동 중심점
     for dong_name, (lat, lng) in SEJONG_DONG_CENTERS.items():
         if dong_name in address:
+            st.sidebar.text(f"[3차] fallback: {dong_name} 중심점")
             return lat, lng, 'fallback_dong', f"'{dong_name}' 중심점 기준"
 
+    # 4차: 세종시 중심점
     if '세종' in address:
+        st.sidebar.text("[4차] fallback: 세종시 중심점")
         return 36.4800, 126.9270, 'fallback_city', '세종시 중심점 기준'
 
     return None, None, 'failed', '주소를 찾을 수 없음'
@@ -377,7 +435,8 @@ def generate_answer(user_message, results, address_info, geo_status, match_statu
 
     prompt = f"""세종시 복지기관 안내 AI입니다.
 [질문] {user_message}
-[주소 상태] {geo_status} / {address_info.get('address','')}
+[사용자 거주지 주소] {address_info.get('address','')} (이것은 사용자가 사는 곳의 주소이며, 시설 주소가 아닙니다)
+[주소 처리 상태] {geo_status}
 [기관매칭] {match_status} / {match_message}
 [결과]{results_text}
 [규칙]
@@ -473,6 +532,12 @@ if submitted and user_input:
     with st.spinner("🔍 검색 중... (주소 확인 → 기관 탐색 → AI 안내문 생성)"):
         # 1) 주소 추출
         address_info = extract_address_with_gemini(user_input)
+        st.sidebar.divider()
+        st.sidebar.text(f"[Gemini 추출]")
+        st.sidebar.text(f"  주소: {address_info.get('address', '?')}")
+        st.sidebar.text(f"  동: {address_info.get('dong', '?')}")
+        st.sidebar.text(f"  세종: {address_info.get('is_sejong', '?')}")
+        st.sidebar.text(f"  신뢰도: {address_info.get('confidence', '?')}")
 
         # 세종시 밖 체크
         if address_info.get('is_sejong') == False:
@@ -484,7 +549,7 @@ if submitted and user_input:
             if not address_str and address_info.get('dong'):
                 address_str = f"세종시 {address_info['dong']}"
 
-            lat, lng, geo_status, geo_message = geocode_vworld(address_str)
+            lat, lng, geo_status, geo_message = geocode(address_str)
 
             if lat is None:
                 dong = address_info.get('dong', '')
