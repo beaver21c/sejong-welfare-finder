@@ -47,6 +47,23 @@ streamlit run app.py
 
 가벼운 실행(도로망 없이 직선거리)을 원하면 `requirements.txt`의 `osmnx`, `networkx` 두 줄을 지우고 설치하세요.
 
+### ⏱️ 휴면·첫 로딩(콜드스타트) 완화
+
+Streamlit Community Cloud 무료 앱은 한동안 방문이 없으면 **휴면**하고, 깨어날 때
+OSMnx가 도로망을 새로 내려받느라 첫 검색이 느릴 수 있습니다. 아래로 크게 줄일 수 있습니다.
+
+1. **도로망 미리 저장(권장)** — 로컬에서 1회 실행 후 결과 파일을 커밋하면, 깨어난 뒤에도
+   재다운로드 없이 파일에서 즉시 로딩합니다.
+   ```bash
+   pip install osmnx
+   python build_graph.py                 # → sejong_drive.graphml 생성
+   git add sejong_drive.graphml && git commit -m "Add prebuilt road network" && git push
+   ```
+2. **직선거리 모드** — 도로 소요시간이 꼭 필요하지 않다면 사이드바에서 "도로망 경로/소요시간"을
+   끄거나 `osmnx`/`networkx`를 빼면 콜드스타트가 사실상 사라집니다.
+3. 그래도 실시간성이 중요하면, 서버 없이 **항상 켜져 있는 정적 사이트(GitHub Pages + 카카오맵 JS)**
+   로 전환하는 방법도 있습니다(거리는 직선거리). 필요 시 이슈로 요청하세요.
+
 ---
 
 ## 🔑 API 키 발급 방법
@@ -78,12 +95,13 @@ streamlit run app.py
 ## 🧩 구조
 
 ```
-app.py            # Streamlit UI (BYOK 키 입력, 검색, 지도)
-core.py           # 순수 로직 (데이터 로드·거리·지오코딩·매칭·도로 라우팅) — Streamlit 비의존
-facilities.json   # 세종시 복지기관 454개 (좌표 포함, UTF-8)
-facilities.csv    # 원본 데이터 (CP949)
-requirements.txt  # 의존성 (osmnx는 선택)
-packages.txt      # Streamlit Cloud용 시스템 패키지
+app.py             # Streamlit UI (BYOK 키 입력, 검색, 지도)
+core.py            # 순수 로직 (데이터 로드·거리·지오코딩·매칭·도로 라우팅) — Streamlit 비의존
+facilities.json    # 세종시 복지기관 454개 (좌표 포함, UTF-8)
+facilities.csv     # 원본 데이터 (CP949)
+build_graph.py     # (선택) 도로망 미리 저장 → 콜드스타트 가속용 sejong_drive.graphml 생성
+requirements.txt   # 의존성 (osmnx는 선택)
+packages.txt       # Streamlit Cloud용 시스템 패키지
 .streamlit/config.toml
 ```
 

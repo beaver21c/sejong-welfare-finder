@@ -412,14 +412,13 @@ def _ox_nearest_nodes(graph, lng, lat):
         return oxd.nearest_nodes(graph, lng, lat)
 
 
-def build_road_network(place: str = "세종특별자치시, South Korea"):
-    """세종시 도로망 다운로드 + 속도/소요시간 부여. (osmnx 1.x/2.x 호환)
+GRAPHML_FILENAME = "sejong_drive.graphml"
 
-    app 쪽에서 @st.cache_resource로 감싸 캐싱합니다. 느리므로(최초 1~3분) 1회만.
-    """
+
+def _add_speeds_times(g):
+    """속도/소요시간 부여 (osmnx 1.x/2.x 호환). 네트워크 불필요, 빠름."""
     import osmnx as ox
 
-    g = ox.graph_from_place(place, network_type="drive")
     try:  # osmnx 1.x
         g = ox.add_edge_speeds(g)
         g = ox.add_edge_travel_times(g)
@@ -429,6 +428,37 @@ def build_road_network(place: str = "세종특별자치시, South Korea"):
         g = routing.add_edge_speeds(g)
         g = routing.add_edge_travel_times(g)
     return g
+
+
+def build_road_network(place: str = "세종특별자치시, South Korea", base_dir: Optional[str] = None):
+    """세종시 도로망 + 속도/소요시간. (osmnx 1.x/2.x 호환)
+
+    콜드스타트(휴면 후 첫 검색) 가속: 저장소에 미리 만들어 둔 sejong_drive.graphml 이
+    있으면 OSM에서 재다운로드(1~3분) 대신 파일에서 즉시 로딩합니다(수 초). 없으면
+    기존처럼 graph_from_place 로 내려받습니다.
+
+    graphml 생성(로컬에서 1회 실행 후 저장소에 커밋):
+        import osmnx as ox
+        g = ox.graph_from_place("세종특별자치시, South Korea", network_type="drive")
+        ox.save_graphml(g, "sejong_drive.graphml")
+
+    app 쪽에서 @st.cache_resource로 감싸 캐싱합니다.
+    """
+    import osmnx as ox
+
+    base_dir = base_dir or os.path.dirname(os.path.abspath(__file__))
+    graphml_path = os.path.join(base_dir, GRAPHML_FILENAME)
+
+    g = None
+    if os.path.exists(graphml_path):
+        try:
+            g = ox.load_graphml(graphml_path)
+        except Exception:
+            g = None
+    if g is None:
+        g = ox.graph_from_place(place, network_type="drive")
+
+    return _add_speeds_times(g)
 
 
 def road_route(graph, user_lat, user_lng, dest_lat, dest_lng):
