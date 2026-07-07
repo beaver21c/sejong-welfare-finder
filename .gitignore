@@ -1,0 +1,14 @@
+# 비밀 키는 절대 커밋하지 않습니다 (BYOK: 키는 사용자 세션에만 보관)
+.streamlit/secrets.toml
+*.env
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# OS
+.DS_Store

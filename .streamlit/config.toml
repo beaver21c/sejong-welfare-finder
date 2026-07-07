@@ -1,0 +1,12 @@
+# Streamlit 설정 (테마 + 사용 통계 비활성화)
+# Streamlit Community Cloud 배포 시 자동 적용됩니다.
+
+[theme]
+base = "light"
+primaryColor = "#2E7D32"          # 복지/보건 느낌의 그린
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2F7F3"
+textColor = "#1B2B22"
+
+[browser]
+gatherUsageStats = false
