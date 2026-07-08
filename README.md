@@ -1,5 +1,15 @@
 # 🏥 세종시 복지기관 안내 서비스 (BYOK)
 
+## 👉 접속 주소: **https://sejong-welfare-finder.streamlit.app**
+
+위 주소로 들어가 **본인 API 키만 입력**하면 바로 사용합니다. **로그인·비밀번호 없음.**
+
+> ⚠️ 아직 배포 전이면 이 주소는 비어 있습니다. 아래 [🚀 바로 배포하기](#-바로-배포하기-원클릭-공개-url-만들기)로
+> 1~2분이면 활성화됩니다. **배포 시 Custom subdomain을 `sejong-welfare-finder`로 지정**하면 위 주소가 됩니다.
+> (다른 주소로 배포했다면 이 한 줄만 실제 주소로 바꾸세요.)
+
+---
+
 주소와 필요한 서비스를 자연어로 입력하면 **가장 가까운 세종시 복지기관**을 찾아 지도와 함께 안내합니다.
 방문자가 **본인이 발급한 API 키**(Gemini + 카카오맵 또는 브이월드)를 입력해 사용하는 **오픈소스 · 퍼블릭** 서비스입니다.
 
@@ -25,9 +35,14 @@
 
 1. 이 저장소를 **본인 GitHub 계정으로 Fork** 하거나 그대로 사용합니다.
 2. <https://share.streamlit.io> 접속 → **New app** 클릭.
-3. 저장소 `beaver21c/sejong-welfare-finder`, 브랜치, **Main file path = `app.py`** 선택 → **Deploy**.
-4. 몇 분 뒤 `https://<앱이름>.streamlit.app` 형태의 **공개 URL**이 생성됩니다.
-5. 그 URL을 공유하세요. 방문자는 접속 후 **사이드바에 본인 키만 입력**하면 바로 사용합니다.
+3. 저장소 `beaver21c/sejong-welfare-finder`, **Branch `main`**, **Main file path = `app.py`** 선택.
+4. **(중요) Advanced settings → Custom subdomain 에 `sejong-welfare-finder` 입력** → 그러면 접속 주소가
+   맨 위에 적힌 `https://sejong-welfare-finder.streamlit.app` 로 고정됩니다. (이미 사용 중이면 다른 이름을 쓰고
+   README 맨 위 주소를 그 이름으로 바꾸세요.) → **Deploy**.
+5. 1~2분 뒤 위 주소가 활성화됩니다. 방문자는 접속 후 **사이드바에 본인 키만 입력**하면 바로 사용합니다.
+6. **저장소 상단에도 주소 노출** — GitHub 저장소 페이지 우측 **About** 옆 톱니바퀴(⚙) →
+   **Website** 칸에 `https://sejong-welfare-finder.streamlit.app` 입력 → Save. 그러면 저장소 맨 위에
+   클릭 가능한 접속 링크가 표시됩니다.
 
 > 배포자가 키를 미리 넣어두고 싶다면(선택) `Settings → Secrets`에 아래를 추가할 수 있습니다.
 > 이 경우 방문자 화면에 기본값으로 채워지므로 **개인/공용 용도에 맞게** 사용하세요.
