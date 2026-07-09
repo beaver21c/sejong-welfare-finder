@@ -47,7 +47,7 @@ DEFAULTS = {
     "kakao_key": _secret("KAKAO_REST_API_KEY", _secret("KAKAO_API_KEY")),
     "vworld_key": _secret("VWORLD_API_KEY"),
     "provider": "kakao",
-    "use_road": True,
+    "use_road": False,  # 기본 꺼짐: 앱을 즉시 띄우고, 사용자가 켤 때만 도로망 로딩
     "last_answer": None,
     "last_map_html": None,
     "last_results": None,
@@ -262,7 +262,7 @@ def search(user_message: str):
 
 def _apply_road_routing(lat, lng, candidates):
     """도로망 사용 설정이 켜져 있고 OSMnx 가능하면 도로 소요시간으로 재정렬."""
-    use_road = st.session_state.get("use_road", True) and core.osmnx_available()
+    use_road = st.session_state.get("use_road", False) and core.osmnx_available()
     graph = get_road_network() if use_road else None
 
     for r in candidates:
@@ -364,13 +364,21 @@ with st.sidebar:
 
     road_ok = core.osmnx_available()
     st.session_state["use_road"] = st.toggle(
-        "도로망 경로/소요시간 사용",
+        "🚗 도로 소요시간 사용 (선택)",
         value=st.session_state["use_road"] and road_ok,
         disabled=not road_ok,
-        help="OSMnx 도로망 기반 실제 소요시간(최초 1~3분 로딩). 미설치 환경에서는 직선거리로 자동 대체됩니다.",
+        help=(
+            "끄면(기본) 직선거리(km)로 즉시 안내합니다. 켜면 도로망으로 '차량 N분'을 계산하는데, "
+            "켠 뒤 첫 검색에서 도로망을 불러오느라 최초 1~3분 걸립니다"
+            "(sejong_drive.graphml 을 커밋해두면 수 초). 실패 시 직선거리로 자동 전환됩니다."
+        ),
     )
     if not road_ok:
         st.caption("ℹ️ 현재 환경엔 OSMnx가 없어 **직선거리** 기준으로 안내합니다.")
+    elif st.session_state["use_road"]:
+        st.caption("⏳ 켜짐: 첫 검색에서 도로망 로딩(최초 1~3분)이 있습니다.")
+    else:
+        st.caption("⚡ 기본(직선거리) — 즉시 안내. 도로 소요시간이 필요할 때만 위 스위치를 켜세요.")
 
     st.divider()
     st.header("📊 데이터 현황")
