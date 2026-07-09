@@ -51,6 +51,7 @@ DEFAULTS = {
     "last_answer": None,
     "last_map_html": None,
     "last_results": None,
+    "last_routing_mode": None,
 }
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
@@ -64,9 +65,12 @@ def get_facilities():
     return core.load_facilities()
 
 
-@st.cache_resource(show_spinner="🗺️ 세종시 도로 네트워크 로딩 중... (최초 1회, 약 1~3분)")
+@st.cache_resource(show_spinner=False)
 def get_road_network():
-    """OSMnx 도로망(속도/소요시간 포함). 실패하면 None → 직선거리로 폴백."""
+    """OSMnx 도로망(속도/소요시간 포함). 실패하면 None → 직선거리로 폴백.
+
+    진행 상태는 호출부의 st.status 로 명시적으로 표시하므로 기본 스피너는 끔.
+    """
     try:
         return core.build_road_network()
     except Exception as e:  # noqa: BLE001
@@ -205,11 +209,13 @@ def generate_answer(user_message, results, address_info, geo_status, match_note)
 # ============================================================
 # 검색 파이프라인
 # ============================================================
-def search(user_message: str):
+def search(user_message: str, status=None):
     provider = st.session_state["provider"]
     keys = {"kakao": st.session_state["kakao_key"], "vworld": st.session_state["vworld_key"]}
 
     # 1) 주소 추출
+    if status is not None:
+        status.write("📍 주소 확인 중…")
     addr_info = extract_address(user_message)
     if addr_info.get("is_sejong") is False and "세종" not in addr_info.get("address", ""):
         return {
@@ -249,22 +255,47 @@ def search(user_message: str):
             "results": None,
         }
 
-    # 4) 거리 랭킹 (직선거리로 후보 압축 → 도로망 있으면 정밀 재계산)
+    # 4) 거리 랭킹 (직선거리로 후보 압축 → 도로망 켜졌으면 정밀 재계산)
     candidates = core.rank_by_distance(lat, lng, filtered, top_n=8)
-    results = _apply_road_routing(lat, lng, candidates)
-    results = results[:5]
+
+    # 도로망 준비(사용자가 켰을 때만). 진행/성공/실패를 status로 명시.
+    graph, routing_mode = _prepare_graph(status)
+    results = _apply_road_routing(lat, lng, candidates, graph)[:5]
 
     # 5) 안내문 + 지도
     answer = generate_answer(user_message, results, addr_info, geo_status, match_note)
+    if routing_mode == "road_failed":
+        answer = "⚠️ 도로망을 불러오지 못해 **직선거리 기준**으로 안내합니다.\n\n" + answer
     map_html = build_map(lat, lng, results)
-    return {"answer": answer, "map_html": map_html, "results": results}
+    return {"answer": answer, "map_html": map_html, "results": results, "routing_mode": routing_mode}
 
 
-def _apply_road_routing(lat, lng, candidates):
-    """도로망 사용 설정이 켜져 있고 OSMnx 가능하면 도로 소요시간으로 재정렬."""
+def _prepare_graph(status=None):
+    """도로망 토글이 켜져 있으면 그래프를 로딩하고 상태를 표시.
+
+    반환: (graph|None, routing_mode)
+      routing_mode ∈ {"straight", "road", "road_failed"}
+    """
     use_road = st.session_state.get("use_road", False) and core.osmnx_available()
-    graph = get_road_network() if use_road else None
+    if not use_road:
+        return None, "straight"
 
+    if status is not None:
+        status.write("🗺️ 도로망 불러오는 중… (최초 1~3분, **그대로 기다려 주세요**)")
+    graph = get_road_network()
+    if graph is None:
+        if status is not None:
+            err = st.session_state.get("road_error", "")
+            status.write(f"⚠️ 도로망 로딩 실패 → 직선거리로 안내합니다. {('('+err[:80]+')') if err else ''}")
+        return None, "road_failed"
+
+    if status is not None:
+        status.write(f"✅ 도로망 준비 완료 (노드 {len(graph.nodes):,}개). 경로 계산 중…")
+    return graph, "road"
+
+
+def _apply_road_routing(lat, lng, candidates, graph):
+    """graph가 있으면 도로 소요시간/경로로 재정렬, 없으면 직선거리 유지."""
     for r in candidates:
         if graph is not None:
             dist, mins, route = core.road_route(graph, lat, lng, r["lat"], r["lng"])
@@ -425,21 +456,42 @@ with st.form("query_form", clear_on_submit=False):
     submitted = st.form_submit_button("🔍 검색", use_container_width=True, type="primary")
 
 if submitted and user_input.strip():
-    with st.spinner("🔍 검색 중... (주소 확인 → 기관 탐색 → 안내문 생성)"):
+    road_on = st.session_state.get("use_road", False) and core.osmnx_available()
+    label = "🔍 검색 중… (도로망 사용: 최초 1~3분 소요될 수 있음)" if road_on else "🔍 검색 중…"
+    with st.status(label, expanded=True) as status:
         try:
-            out = search(user_input.strip())
+            out = search(user_input.strip(), status=status)
             st.session_state["last_answer"] = out["answer"]
             st.session_state["last_map_html"] = out["map_html"]
             st.session_state["last_results"] = out["results"]
+            st.session_state["last_routing_mode"] = out.get("routing_mode", "straight")
+            mode = st.session_state["last_routing_mode"]
+            done = {
+                "road": "✅ 완료 — 도로 경로 기준",
+                "road_failed": "✅ 완료 — 직선거리 기준(도로망 로딩 실패)",
+                "straight": "✅ 완료 — 직선거리 기준",
+            }.get(mode, "✅ 완료")
+            status.update(label=done, state="complete", expanded=False)
         except Exception as e:  # noqa: BLE001
             st.session_state["last_answer"] = f"⚠️ 처리 중 오류가 발생했습니다: {e}"
             st.session_state["last_map_html"] = None
             st.session_state["last_results"] = None
+            st.session_state["last_routing_mode"] = None
+            status.update(label=f"⚠️ 오류: {e}", state="error")
 
 # 결과 표시
 if st.session_state.get("last_answer"):
     st.divider()
     st.subheader("🤖 안내 결과")
+
+    mode = st.session_state.get("last_routing_mode")
+    if mode == "road":
+        st.success("🚗 **도로 경로 기준** — 지도에 실제 이동 경로선이 표시됩니다.")
+    elif mode == "road_failed":
+        st.warning("📏 **직선거리 기준** — 도로망을 불러오지 못했습니다. 사이드바에서 다시 시도하거나 잠시 후 재검색하세요.")
+    elif mode == "straight":
+        st.info("📏 **직선거리 기준** — 경로선이 필요하면 사이드바 '🚗 도로 소요시간 사용'을 켜고 검색하세요.")
+
     st.markdown(st.session_state["last_answer"])
 
     if st.session_state.get("last_results"):
