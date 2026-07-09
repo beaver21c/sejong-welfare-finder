@@ -47,7 +47,7 @@ DEFAULTS = {
     "kakao_key": _secret("KAKAO_REST_API_KEY", _secret("KAKAO_API_KEY")),
     "vworld_key": _secret("VWORLD_API_KEY"),
     "provider": "kakao",
-    "use_road": False,  # 기본 꺼짐: 앱을 즉시 띄우고, 사용자가 켤 때만 도로망 로딩
+    "use_road": True,  # 기본 켜짐: 검색 시 도로 경로를 계산해 지도에 경로선 표시(첫 검색 로딩 있음)
     "last_answer": None,
     "last_map_html": None,
     "last_results": None,
